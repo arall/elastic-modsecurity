@@ -1,0 +1,24 @@
+version: "2.2"
+
+services:
+    
+  # Elastic Agent (fleet server & agent)
+  fleet:
+    image: docker.elastic.co/beats/elastic-agent:${STACK_VERSION}
+    volumes:
+      - certs:/usr/share/elastic-agent/config/certs
+      - ./logs/apache2/:/var/log/apache2/
+      - ./logs/modsecurity/modsecurity.log:/var/log/modsec-audit.log
+    environment:
+      - FLEET_SERVER_ENABLE=true
+      - FLEET_SERVER_ELASTICSEARCH_HOST=https://elasticsearch:9200
+      - FLEET_SERVER_ELASTICSEARCH_CA=/usr/share/elastic-agent/config/certs/ca/ca.crt
+      - FLEET_SERVER_SERVICE_TOKEN=${FLEET_SERVER_SERVICE_TOKEN}
+      - FLEET_SERVER_POLICY_ID=fleet-server-policy
+      - TZ=${TZ}
+    ports:
+      - 8220:8220
+
+volumes:
+  certs:
+    driver: local

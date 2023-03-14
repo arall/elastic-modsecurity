@@ -1,0 +1,35 @@
+version: "2.2"
+
+services:
+
+  # DVWA
+  dvwa:
+    container_name: dvwa
+    image: vulnerables/web-dvwa:latest
+    platform: linux/amd64
+    ports:
+      - "8080:80"
+    volumes:
+      - ./logs/apache2/:/var/log/apache2/
+    environment:
+      - TZ=${TZ}
+
+  # Modsecurity proxy
+  modsecurity:
+    image: owasp/modsecurity-crs:apache
+    ports:
+      - "80:80"
+    environment:
+      - PROXY_SSL=off
+      - BACKEND=http://dvwa
+      - MODSEC_AUDIT_LOG_FORMAT=JSON
+      - MODSEC_AUDIT_LOG_TYPE=Serial
+      - MODSEC_AUDIT_LOG_PARTS=ABDEFHIJZ
+      - MODSEC_RULE_ENGINE=DetectionOnly
+      - MODSEC_AUDIT_LOG=/var/log/modsecurity/modsecurity.log
+      - TZ=${TZ}
+    volumes:
+      - ./logs/apache2/:/var/log/apache2/ # Required due ACCESSLOG
+      - ./logs/modsecurity/:/var/log/modsecurity/
+    depends_on:
+      - dvwa
