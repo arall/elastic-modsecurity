@@ -1,0 +1,398 @@
+PUT _ingest/pipeline/logs-modsecurity.auditlog-1.6.0-apache-modsec
+{
+    "description": "Pipeline for apache modsecurity audit log.",
+    "processors": [
+        {
+            "rename": {
+                "field": "json.transaction.time",
+                "target_field": "_temps.date",
+                "ignore_missing": true
+            }
+        },
+        {
+            "grok": {
+                "field": "_temps.date",
+                "patterns": [
+                    "%{DATE}"
+                ],
+                "pattern_definitions": {
+                    "DATE": "%{MONTHDAY}/%{MONTH}/%{YEAR}:%{TIME} (?:%{TZ:_temps.tz}|Z)",
+                    "YEAR": "\\d{4}",
+                    "TZ": "(?:[APMCE][SD]T|UTC|[-+]\\d{2}:?\\d{2})"
+                },
+                "ignore_failure": true
+            }
+        },
+        {
+            "gsub": {
+                "field": "_temps.tz",
+                "pattern": "^([-+]\\d{2})(\\d{2})$",
+                "replacement": "$1:$2",
+                "if": "ctx._temps?.tz != null"
+            }
+        },
+        {
+            "set": {
+                "field": "_temps.tz",
+                "copy_from": "_conf.tz_offset",
+                "override": false,
+                "if": "ctx._conf?.tz_offset != null && ctx._conf?.tz_offset != 'local'"
+            }
+        },
+        {
+            "set": {
+                "field": "_temps.tz",
+                "copy_from": "event.timezone",
+                "override": false,
+                "if": "ctx.event?.timezone != null"
+            }
+        },
+        {
+            "set": {
+                "field": "_temps.tz",
+                "value": "UTC",
+                "override": false
+            }
+        },
+        {
+            "set": {
+                "field": "event.timezone",
+                "copy_from": "_temps.tz"
+            }
+        },
+        {
+            "date": {
+                "field": "_temps.date",
+                "timezone": "{{ event.timezone }}",
+                "formats": [
+                    "d/MMM/yyyy:HH:mm:ss",
+                    "d/MMM/yyyy:HH:mm:ss Z",
+                    "d/MMM/yyyy:HH:mm:ss.SSS",
+                    "d/MMM/yyyy:HH:mm:ss.SSS Z",
+                    "d/MMM/yyyy:HH:mm:ss.SSSSSS",
+                    "d/MMM/yyyy:HH:mm:ss.SSSSSS Z"
+                ],
+                "on_failure": [
+                    {
+                        "remove": {
+                            "field": "event.timezone",
+                            "ignore_missing": true
+                        }
+                    },
+                    {
+                        "date": {
+                            "field": "_temps.date",
+                            "tag": "time_date",
+                            "formats": [
+                                "d/MMM/yyyy:HH:mm:ss",
+                                "d/MMM/yyyy:HH:mm:ss Z",
+                                "d/MMM/yyyy:HH:mm:ss.SSS",
+                                "d/MMM/yyyy:HH:mm:ss.SSS Z",
+                                "d/MMM/yyyy:HH:mm:ss.SSSSSS",
+                                "d/MMM/yyyy:HH:mm:ss.SSSSSS Z"
+                            ],
+                            "on_failure": [
+                                {
+                                    "append": {
+                                        "field": "error.message",
+                                        "value": "fail-{{{ _ingest.on_failure_processor_tag }}}"
+                                    }
+                                },
+                                {
+                                    "fail": {
+                                        "message": "Processor {{ _ingest.on_failure_processor_type }} with tag {{ _ingest.on_failure_processor_tag }} in pipeline {{ _ingest.on_failure_pipeline }} failed with message: {{ _ingest.on_failure_message }}"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "rename": {
+                "field": "json.transaction.remote_address",
+                "target_field": "source.ip",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.transaction.local_address",
+                "target_field": "destination.ip",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.transaction.remote_port",
+                "target_field": "source.port",
+                "ignore_missing": true
+            }
+        },
+        {
+            "grok": {
+                "field": "json.request.request_line",
+                "patterns": [
+                    "%{NOTSPACE:http.request.method} %{URIPATHPARAM:url.original}(?: HTTP/%{NUMBER:http.version})"
+                ]
+            }
+        },
+        {
+            "set": {
+                "field": "_temps.url",
+                "if": "ctx.json.transaction.local_port == 443",
+                "value": "https://{{json.request.headers.Host}}:{{json.transaction.#local_port}}{{url.original}}"
+            }
+        },
+        {
+            "set": {
+                "field": "_temps.url",
+                "if": "ctx.json.transaction.local_port == 80",
+                "value": "http://{{json.request.headers.Host}}:{{json.transaction.#local_port}}{{url.original}}"
+            }
+        },
+        {
+            "uri_parts": {
+                "field": "_temps.url",
+                "ignore_failure": true,
+                "keep_original": true,
+                "remove_if_successful": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.response.status",
+                "target_field": "http.response.status_code",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.transaction.transaction_id",
+                "target_field": "transaction.id",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.response.headers.Content-Type",
+                "target_field": "http.response.mime_type",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.request.headers.Content-Type",
+                "target_field": "http.request.mime_type",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.response.headers.Content-Length",
+                "target_field": "http.response.bytes",
+                "ignore_missing": true
+            }
+        },
+        {
+            "convert": {
+                "field": "http.response.bytes",
+                "ignore_missing": true,
+                "type": "long"
+            }
+        },
+        {
+            "rename": {
+                "field": "json.request.headers.Content-Length",
+                "target_field": "http.request.bytes",
+                "ignore_missing": true
+            }
+        },
+        {
+            "convert": {
+                "field": "http.request.bytes",
+                "ignore_missing": true,
+                "type": "long"
+            }
+        },
+        {
+            "rename": {
+                "field": "json.request.body",
+                "target_field": "http.request.body.content",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.response.body",
+                "target_field": "http.response.body.content",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.request.headers.REMOTE_USER",
+                "target_field": "user.name",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "json.request.headers.Referer",
+                "target_field": "http.request.referrer",
+                "ignore_missing": true
+            }
+        },
+        {
+            "set": {
+                "field": "modsec.audit.messages",
+                "copy_from": "json.audit_data.messages"
+            }
+        },
+        {
+            "set": {
+                "field": "modsec.audit.titles",
+                "value": []
+            }
+        },
+        {
+            "script": {
+                "lang": "painless",
+                "ignore_failure": true,
+                "source": "if (ctx.modsec?.audit?.messages == null || ctx.modsec.audit.messages.length == 0) {\n  return;\n}\ndef details = ctx.modsec.audit.messages;\ndef messages = new ArrayList();\nfor (def i = 0; i < details.length; i++) {\n  def idx = details[i].indexOf(' ['); // Find first key value mark.\n  if (idx < 0) {\n    idx = details[i].length;\n  }\n  messages.add(details[i].substring(0, idx));\n}\nctx.modsec.audit.titles = messages\n"
+            }
+        },
+        {
+            "script": {
+                "lang": "painless",
+                "ignore_failure": true,
+                "source": "ctx.modsec.audit.title = ctx.modsec.audit.titles[0]"
+            }
+        },
+        {
+            "script": {
+                "lang": "painless",
+                "ignore_failure": true,
+                "source": "ctx.modsec.audit.message = ctx.modsec.audit.messages[0]"
+            }
+        },
+        {
+            "grok": {
+                "field": "modsec.audit.message",
+                "patterns": [
+                    "%{NOTSPACE:modsec.rule.level}\\. %{GREEDYDATA} (%{MODSECRULEFILE}) (%{MODSECRULELINE})?( )?(%{MODSECMATCHOFFSET})?( ?)(%{MODSECRULEID})?( )?(%{MODSECRULEREV})?( )?(%{MODSECRULEMSG})?( )?(%{MODSECRULEDATA})?( )?(%{MODSECRULESEVERITY})?( )?(%{MODSECRULEVERSION})?( )?(%{MODSECRULEMATURITY})?( )?(%{MODSECRULEACCURACY})?( )?(%{MODSECRULETAGS})?"
+                ],
+                "pattern_definitions": {
+                    "MODSECRULEFILE": "\\[file \"%{DATA:modsec.rule.file}\"\\]",
+                    "MODSECRULELINE": "\\[line \"%{INT:modsec.rule.line}\"\\]",
+                    "MODSECMATCHOFFSET": "\\[offset \"%{DATA:modsec.rule.offset}\"\\]",
+                    "MODSECRULEID": "\\[id \"%{INT:modsec.rule.id}\"\\]",
+                    "MODSECRULEREV": "\\[rev \"%{INT:modsec.rule.rev}\"\\]",
+                    "MODSECRULEMSG": "\\[msg \"%{DATA:modsec.rule.message}\"\\]",
+                    "MODSECRULEDATA": "\\[data \"%{DATA:modsec.rule.data}\"\\]",
+                    "MODSECRULESEVERITY": "\\[severity \"%{NOTSPACE:modsec.rule.severity}\"\\]",
+                    "MODSECRULEVERSION": "\\[ver \"%{NOTSPACE:modsec.rule.version}\"\\]",
+                    "MODSECRULEMATURITY": "\\[maturity \"%{INT:modsec.rule.maturity}\"\\]",
+                    "MODSECRULEACCURACY": "\\[accuracy \"%{INT:modsec.rule.accuracy}\"\\]",
+                    "MODSECRULETAGS": "(?:\\[tag \"%{NOTSPACE:modsec.rule.tag1}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag2}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag3}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag4}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag5}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag6}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag7}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag8}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag9}\"\\])?(?: \\[tag \"%{NOTSPACE:modsec.rule.tag10}\"\\])?"
+                }
+            }
+        },
+        {
+            "user_agent": {
+                "field": "json.request.headers.User-Agent",
+                "ignore_missing": true
+            }
+        },
+        {
+            "geoip": {
+                "field": "source.ip",
+                "target_field": "source.geo",
+                "ignore_missing": true
+            }
+        },
+        {
+            "geoip": {
+                "database_file": "GeoLite2-ASN.mmdb",
+                "field": "source.ip",
+                "target_field": "source.as",
+                "properties": [
+                    "asn",
+                    "organization_name"
+                ],
+                "ignore_missing": true
+            }
+        },
+        {
+            "geoip": {
+                "field": "destination.ip",
+                "target_field": "destination.geo",
+                "ignore_missing": true
+            }
+        },
+        {
+            "geoip": {
+                "database_file": "GeoLite2-ASN.mmdb",
+                "field": "destination.ip",
+                "target_field": "destination.as",
+                "properties": [
+                    "asn",
+                    "organization_name"
+                ],
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "source.as.asn",
+                "target_field": "source.as.number",
+                "ignore_missing": true
+            }
+        },
+        {
+            "rename": {
+                "field": "source.as.organization_name",
+                "target_field": "source.as.organization.name",
+                "ignore_missing": true
+            }
+        },
+        {
+            "set": {
+                "field": "event.kind",
+                "value": "event"
+            }
+        },
+        {
+            "append": {
+                "field": "event.category",
+                "value": "web"
+            }
+        },
+        {
+            "append": {
+                "field": "event.type",
+                "value": "access"
+            }
+        },
+        {
+            "remove": {
+                "field": "event.original",
+                "if": "ctx.tags == null || !(ctx.tags.contains('preserve_original_event'))",
+                "ignore_failure": true,
+                "ignore_missing": true
+            }
+        },
+        {
+            "remove": {
+                "field": [
+                    "json",
+                    "_conf",
+                    "_temps"
+                ],
+                "ignore_failure": true,
+                "ignore_missing": true
+            }
+        }
+    ]
+}

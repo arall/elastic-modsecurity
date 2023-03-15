@@ -25,7 +25,7 @@ services:
       - MODSEC_AUDIT_LOG_FORMAT=JSON
       - MODSEC_AUDIT_LOG_TYPE=Serial
       - MODSEC_AUDIT_LOG_PARTS=ABDEFHIJZ
-      - MODSEC_RULE_ENGINE=DetectionOnly
+      - MODSEC_RULE_ENGINE=DetectionOnly # DetectionOnly | On
       - MODSEC_AUDIT_LOG=/var/log/modsecurity/modsecurity.log
       - TZ=${TZ}
     volumes:
